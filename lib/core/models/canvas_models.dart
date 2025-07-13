@@ -77,6 +77,30 @@ class Course {
 
   String get displayName => '$code: $name';
   
+  String get letterGrade {
+    if (grade.isEmpty) return 'N/A';
+    return grade.toUpperCase();
+  }
+  
+  double get gradeValue {
+    if (grade.isEmpty) return 0.0;
+    
+    final gradeUpper = grade.toUpperCase();
+    if (gradeUpper.contains('A+')) return 97.0;
+    if (gradeUpper.contains('A')) return 93.0;
+    if (gradeUpper.contains('A-')) return 90.0;
+    if (gradeUpper.contains('B+')) return 87.0;
+    if (gradeUpper.contains('B')) return 83.0;
+    if (gradeUpper.contains('B-')) return 80.0;
+    if (gradeUpper.contains('C+')) return 77.0;
+    if (gradeUpper.contains('C')) return 73.0;
+    if (gradeUpper.contains('C-')) return 70.0;
+    if (gradeUpper.contains('D+')) return 67.0;
+    if (gradeUpper.contains('D')) return 63.0;
+    if (gradeUpper.contains('D-')) return 60.0;
+    return 0.0;
+  }
+  
   Color get gradeColor {
     if (grade.isEmpty) return Colors.grey;
     
@@ -179,7 +203,11 @@ class Assignment {
   
   bool get isPending => status == 'pending';
   
-  String get timeUntilDue {
+  bool get isCompleted => isSubmitted;
+  
+  String get title => name;
+  
+  String get timeUntilDueString {
     final now = DateTime.now();
     final difference = dueDate.difference(now);
     
@@ -194,6 +222,26 @@ class Assignment {
       final hours = difference.inHours;
       return '$hours hour${hours == 1 ? '' : 's'} left';
     }
+  }
+  
+  String get timeUntilDue {
+    return timeUntilDueString;
+  }
+  
+  String get priorityString {
+    if (isOverdue) return 'High';
+    final daysUntilDue = dueDate.difference(DateTime.now()).inDays;
+    if (daysUntilDue <= 1) return 'High';
+    if (daysUntilDue <= 3) return 'Medium';
+    return 'Low';
+  }
+  
+  Color get priorityColor {
+    if (isOverdue) return Colors.red;
+    final daysUntilDue = dueDate.difference(DateTime.now()).inDays;
+    if (daysUntilDue <= 1) return Colors.red;
+    if (daysUntilDue <= 3) return Colors.orange;
+    return Colors.green;
   }
 
   Color get statusColor {
@@ -214,6 +262,11 @@ class Grade {
   final double score;
   final int totalPoints;
   final double percentage;
+  final String courseName;
+  final String semester;
+  final int credits;
+  final double grade;
+  final double gradePoints;
 
   Grade({
     required this.assignmentId,
@@ -221,6 +274,11 @@ class Grade {
     required this.score,
     required this.totalPoints,
     required this.percentage,
+    required this.courseName,
+    required this.semester,
+    required this.credits,
+    required this.grade,
+    required this.gradePoints,
   });
 
   factory Grade.fromJson(Map<String, dynamic> json) {
@@ -233,6 +291,11 @@ class Grade {
       score: score,
       totalPoints: totalPoints,
       percentage: totalPoints > 0 ? (score / totalPoints) : 0.0,
+      courseName: json['course_name'] ?? '',
+      semester: json['semester'] ?? '',
+      credits: json['credits'] ?? 0,
+      grade: json['grade'] ?? 0.0,
+      gradePoints: json['grade_points'] ?? 0.0,
     );
   }
 
@@ -243,6 +306,11 @@ class Grade {
       'score': score,
       'totalPoints': totalPoints,
       'percentage': percentage,
+      'courseName': courseName,
+      'semester': semester,
+      'credits': credits,
+      'grade': grade,
+      'gradePoints': gradePoints,
     };
   }
 
@@ -252,6 +320,11 @@ class Grade {
     double? score,
     int? totalPoints,
     double? percentage,
+    String? courseName,
+    String? semester,
+    int? credits,
+    double? grade,
+    double? gradePoints,
   }) {
     return Grade(
       assignmentId: assignmentId ?? this.assignmentId,
@@ -259,6 +332,11 @@ class Grade {
       score: score ?? this.score,
       totalPoints: totalPoints ?? this.totalPoints,
       percentage: percentage ?? this.percentage,
+      courseName: courseName ?? this.courseName,
+      semester: semester ?? this.semester,
+      credits: credits ?? this.credits,
+      grade: grade ?? this.grade,
+      gradePoints: gradePoints ?? this.gradePoints,
     );
   }
 

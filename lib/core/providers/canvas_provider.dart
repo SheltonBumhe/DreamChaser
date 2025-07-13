@@ -25,6 +25,35 @@ class CanvasProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isConnected => _isConnected;
+  
+  // Additional getters for dashboard
+  double get overallGPA {
+    if (_courses.isEmpty) return 0.0;
+    
+    double totalGradePoints = 0.0;
+    int totalCredits = 0;
+    
+    for (final course in _courses) {
+      if (course.grade.isNotEmpty) {
+        final gradePoints = course.gradeValue;
+        final credits = course.credits;
+        totalGradePoints += gradePoints * credits;
+        totalCredits += credits;
+      }
+    }
+    
+    return totalCredits > 0 ? totalGradePoints / totalCredits : 0.0;
+  }
+  
+  List<Assignment> get upcomingAssignments {
+    final now = DateTime.now();
+    return _assignments
+        .where((assignment) => 
+            assignment.dueDate.isAfter(now) && 
+            !assignment.isCompleted)
+        .toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+  }
 
   // Initialize Canvas integration
   Future<void> initializeCanvas() async {

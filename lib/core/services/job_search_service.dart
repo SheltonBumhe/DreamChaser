@@ -86,7 +86,7 @@ class JobSearchService {
       return uniqueJobs.take(limit ?? 50).toList();
     } catch (e) {
       debugPrint('Job search error: ${e.toString()}');
-      return _getMockJobs();
+      return await _getMockJobs();
     }
   }
 
@@ -200,8 +200,6 @@ class JobSearchService {
       applicationUrl: data['url'],
       applicationEmail: null,
       securityLevel: SecurityLevel.trusted, // GitHub Jobs are generally trusted
-      isScam: false,
-      isSecure: true,
       skills: _extractSkillsFromDescription(data['description'] ?? ''),
       requirements: _extractRequirementsFromDescription(data['description'] ?? ''),
       benefits: _extractBenefitsFromDescription(data['description'] ?? ''),
@@ -569,7 +567,7 @@ class JobSearchService {
     return indicators;
   }
 
-  static JobOpportunity _getMockJobs() {
+  static List<JobOpportunity> _getMockJobs() {
     return [
       _createMockJob(
         id: '1',
