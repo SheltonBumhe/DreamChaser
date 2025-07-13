@@ -216,12 +216,11 @@ class JobSearchService {
 
   // Apply security filters to job listings
   static List<JobOpportunity> _applySecurityFilters(List<JobOpportunity> jobs) {
-    return jobs.where((job) {
+    return jobs.map((job) {
       // Check for scam indicators
       if (_detectScam(job)) {
         // Create a new job object with scam flag
-        final scamJob = job.copyWith(isScam: true, isSecure: false);
-        return false; // Remove scam jobs
+        return job.copyWith(isScam: true, isSecure: false);
       }
 
       // Verify company authenticity
@@ -232,13 +231,11 @@ class JobSearchService {
                        securityLevel == SecurityLevel.trusted;
       
       // Update job with security information
-      job = job.copyWith(
+      return job.copyWith(
         securityLevel: securityLevel,
         isSecure: isSecure,
       );
-
-      return true;
-    }).toList();
+    }).where((job) => !job.isScam).toList();
   }
 
   // Detect potential scams in job postings
