@@ -1,0 +1,16 @@
+{
+    "buildCommand": "flutter build web --release",
+    "outputDirectory": "build/web",
+    "framework": "flutter",
+    "installCommand": "flutter pub get",
+    "devCommand": "flutter run -d chrome",
+    "functions": {
+        "api/**/*.dart": {
+            "runtime": "dart"
+        }
+    },
+    "routes": [{
+        "src": "/(.*)",
+        "dest": "/index.html"
+    }]
+}
