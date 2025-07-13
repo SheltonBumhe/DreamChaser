@@ -3,7 +3,10 @@ import '../models/job_opportunity_model.dart';
 import '../models/internship_model.dart';
 import '../models/skill_model.dart';
 import '../models/course_model.dart';
-import '../services/secure_job_service.dart';
+import '../models/ai_recommendation_model.dart';
+import '../services/job_search_service.dart';
+import '../services/ai_service.dart';
+import '../services/canvas_integration_service.dart';
 
 class CareerProvider extends ChangeNotifier {
   List<JobOpportunity> _jobOpportunities = [];
@@ -11,6 +14,7 @@ class CareerProvider extends ChangeNotifier {
   List<Skill> _skills = [];
   List<Skill> _userSkills = [];
   List<Course> _canvasCourses = [];
+  List<AIRecommendation> _aiRecommendations = [];
   bool _isLoading = false;
   String? _error;
   bool _isCanvasConnected = false;
@@ -21,6 +25,7 @@ class CareerProvider extends ChangeNotifier {
   List<Skill> get skills => _skills;
   List<Skill> get userSkills => _userSkills;
   List<Course> get canvasCourses => _canvasCourses;
+  List<AIRecommendation> get aiRecommendations => _aiRecommendations;
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isCanvasConnected => _isCanvasConnected;
@@ -34,11 +39,11 @@ class CareerProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Load secure jobs with scam detection
-      _jobOpportunities = await SecureJobService.fetchSecureJobs();
+      // Load jobs with real API integration
+      _jobOpportunities = await JobSearchService.searchJobs();
       
       // Load Canvas courses for integration
-      _canvasCourses = await SecureJobService.fetchCanvasCourses();
+      _canvasCourses = await CanvasIntegrationService.fetchUserCourses();
       _isCanvasConnected = _canvasCourses.isNotEmpty;
 
       // Mock internships (keeping existing data for now)
@@ -134,7 +139,7 @@ class CareerProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> searchSecureOpportunities({
+  Future<void> searchJobs({
     String? query,
     JobType? type,
     String? location,
@@ -145,8 +150,8 @@ class CareerProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Use secure job service for search
-      _jobOpportunities = await SecureJobService.fetchSecureJobs(
+      // Use real job search service
+      _jobOpportunities = await JobSearchService.searchJobs(
         query: query,
         type: type,
         location: location,
@@ -157,7 +162,7 @@ class CareerProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     } catch (e) {
-      _error = 'Failed to search secure opportunities: ${e.toString()}';
+      _error = 'Failed to search jobs: ${e.toString()}';
       _isLoading = false;
       notifyListeners();
     }
@@ -165,11 +170,12 @@ class CareerProvider extends ChangeNotifier {
 
   Future<void> applyForJob(JobOpportunity job, Map<String, dynamic> applicationData) async {
     try {
-      final success = await SecureJobService.applyForJob(job, applicationData);
-      if (success) {
-        // Update job status or add to applied jobs list
-        notifyListeners();
-      }
+      // For now, simulate job application
+      // In production, this would integrate with job application APIs
+      await Future.delayed(const Duration(seconds: 2)); // Simulate API call
+      
+      // Update job status or add to applied jobs list
+      notifyListeners();
     } catch (e) {
       _error = 'Failed to apply for job: ${e.toString()}';
       notifyListeners();
@@ -178,7 +184,7 @@ class CareerProvider extends ChangeNotifier {
 
   Future<void> connectCanvas() async {
     try {
-      _canvasCourses = await SecureJobService.fetchCanvasCourses();
+      _canvasCourses = await CanvasIntegrationService.fetchUserCourses();
       _isCanvasConnected = _canvasCourses.isNotEmpty;
       notifyListeners();
     } catch (e) {
@@ -256,5 +262,72 @@ class CareerProvider extends ChangeNotifier {
 
   void refreshData() async {
     await _loadSecureData();
+  }
+
+  // AI-powered features
+  Future<void> generateAIRecommendations() async {
+    try {
+      _aiRecommendations = await AIService.generateJobRecommendations(
+        courses: _canvasCourses,
+        userSkills: _userSkills,
+        availableJobs: _jobOpportunities,
+        limit: 10,
+      );
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to generate AI recommendations: ${e.toString()}';
+      notifyListeners();
+    }
+  }
+
+  Future<double> calculateSkillMatch(JobOpportunity job) async {
+    try {
+      return await AIService.calculateSkillMatch(
+        job.skills,
+        _canvasCourses,
+        _userSkills,
+      );
+    } catch (e) {
+      _error = 'Failed to calculate skill match: ${e.toString()}';
+      return 0.0;
+    }
+  }
+
+  Future<List<String>> analyzeSkillGaps(JobOpportunity targetJob) async {
+    try {
+      return await AIService.analyzeSkillGaps(
+        targetJobSkills: targetJob.skills,
+        courses: _canvasCourses,
+        userSkills: _userSkills,
+      );
+    } catch (e) {
+      _error = 'Failed to analyze skill gaps: ${e.toString()}';
+      return [];
+    }
+  }
+
+  Future<void> refreshCanvasData() async {
+    try {
+      _canvasCourses = await CanvasIntegrationService.fetchUserCourses();
+      _isCanvasConnected = _canvasCourses.isNotEmpty;
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to refresh Canvas data: ${e.toString()}';
+      notifyListeners();
+    }
+  }
+
+  Future<bool> testCanvasConnection() async {
+    try {
+      final isConnected = await CanvasIntegrationService.testCanvasConnection();
+      _isCanvasConnected = isConnected;
+      notifyListeners();
+      return isConnected;
+    } catch (e) {
+      _error = 'Failed to test Canvas connection: ${e.toString()}';
+      _isCanvasConnected = false;
+      notifyListeners();
+      return false;
+    }
   }
 } 

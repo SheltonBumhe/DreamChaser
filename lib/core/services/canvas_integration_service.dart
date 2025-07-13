@@ -1,20 +1,22 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import '../models/course_model.dart';
 import '../models/assignment_model.dart';
 import '../models/grade_model.dart';
 import '../models/skill_model.dart';
-
+import 'api_config.dart';
+import 'http_client.dart';
+  
 class CanvasIntegrationService {
-  static const String _baseUrl = 'https://canvas.instructure.com/api/v1';
-  static const String _apiToken = 'your_canvas_api_token';
+  static final ApiHttpClient _httpClient = ApiHttpClient();
   
   // Canvas API endpoints
   static const String _coursesEndpoint = '/courses';
   static const String _assignmentsEndpoint = '/courses/{course_id}/assignments';
   static const String _gradesEndpoint = '/courses/{course_id}/enrollments';
   static const String _userEndpoint = '/users/self';
+  static const String _accountEndpoint = '/accounts/self';
+  static const String _enrollmentsEndpoint = '/users/self/enrollments';
 
   // Skill mapping from Canvas courses
   static const Map<String, List<String>> courseSkillMapping = {
@@ -30,22 +32,22 @@ class CanvasIntegrationService {
   // Fetch user's Canvas courses
   static Future<List<Course>> fetchUserCourses() async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl$_coursesEndpoint'),
-        headers: {
-          'Authorization': 'Bearer $_apiToken',
-          'Content-Type': 'application/json',
-        },
+      if (!ApiConfig.isCanvasApiAvailable) {
+        return _getMockCanvasCourses();
+      }
+
+      final url = '${ApiConfig.canvasBaseUrl}$_coursesEndpoint';
+      final response = await _httpClient.get(
+        url,
+        service: 'canvas',
+        useCache: true,
+        cacheExpiration: ApiConfig.canvasCacheExpiration,
       );
 
-      if (response.statusCode == 200) {
-        final List<dynamic> coursesData = json.decode(response.body);
-        return coursesData.map((data) => Course.fromJson(data)).toList();
-      } else {
-        throw Exception('Failed to fetch Canvas courses: ${response.statusCode}');
-      }
+      final List<dynamic> coursesData = json.decode(response.body);
+      return coursesData.map((data) => Course.fromJson(data)).toList();
     } catch (e) {
-      // Return mock data if API fails
+      debugPrint('Canvas API error: ${e.toString()}');
       return _getMockCanvasCourses();
     }
   }
@@ -53,22 +55,22 @@ class CanvasIntegrationService {
   // Fetch assignments for a specific course
   static Future<List<Assignment>> fetchCourseAssignments(String courseId) async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl$_assignmentsEndpoint'.replaceAll('{course_id}', courseId)),
-        headers: {
-          'Authorization': 'Bearer $_apiToken',
-          'Content-Type': 'application/json',
-        },
+      if (!ApiConfig.isCanvasApiAvailable) {
+        return _getMockAssignments(courseId);
+      }
+
+      final url = '${ApiConfig.canvasBaseUrl}${_assignmentsEndpoint.replaceAll('{course_id}', courseId)}';
+      final response = await _httpClient.get(
+        url,
+        service: 'canvas',
+        useCache: true,
+        cacheExpiration: ApiConfig.canvasCacheExpiration,
       );
 
-      if (response.statusCode == 200) {
-        final List<dynamic> assignmentsData = json.decode(response.body);
-        return assignmentsData.map((data) => Assignment.fromJson(data)).toList();
-      } else {
-        throw Exception('Failed to fetch assignments: ${response.statusCode}');
-      }
+      final List<dynamic> assignmentsData = json.decode(response.body);
+      return assignmentsData.map((data) => Assignment.fromJson(data)).toList();
     } catch (e) {
-      // Return mock data if API fails
+      debugPrint('Canvas assignments API error: ${e.toString()}');
       return _getMockAssignments(courseId);
     }
   }
@@ -76,22 +78,22 @@ class CanvasIntegrationService {
   // Fetch grades for a specific course
   static Future<List<Grade>> fetchCourseGrades(String courseId) async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl$_gradesEndpoint'.replaceAll('{course_id}', courseId)),
-        headers: {
-          'Authorization': 'Bearer $_apiToken',
-          'Content-Type': 'application/json',
-        },
+      if (!ApiConfig.isCanvasApiAvailable) {
+        return _getMockGrades(courseId);
+      }
+
+      final url = '${ApiConfig.canvasBaseUrl}${_gradesEndpoint.replaceAll('{course_id}', courseId)}';
+      final response = await _httpClient.get(
+        url,
+        service: 'canvas',
+        useCache: true,
+        cacheExpiration: ApiConfig.canvasCacheExpiration,
       );
 
-      if (response.statusCode == 200) {
-        final List<dynamic> gradesData = json.decode(response.body);
-        return gradesData.map((data) => Grade.fromJson(data)).toList();
-      } else {
-        throw Exception('Failed to fetch grades: ${response.statusCode}');
-      }
+      final List<dynamic> gradesData = json.decode(response.body);
+      return gradesData.map((data) => Grade.fromJson(data)).toList();
     } catch (e) {
-      // Return mock data if API fails
+      debugPrint('Canvas grades API error: ${e.toString()}');
       return _getMockGrades(courseId);
     }
   }
@@ -187,6 +189,72 @@ class CanvasIntegrationService {
     }
 
     return relatedCourses;
+  }
+
+  // Fetch user profile information
+  static Future<Map<String, dynamic>> fetchUserProfile() async {
+    try {
+      if (!ApiConfig.isCanvasApiAvailable) {
+        return _getMockUserProfile();
+      }
+
+      final url = '${ApiConfig.canvasBaseUrl}$_userEndpoint';
+      final response = await _httpClient.get(
+        url,
+        service: 'canvas',
+        useCache: true,
+        cacheExpiration: ApiConfig.canvasCacheExpiration,
+      );
+
+      return json.decode(response.body);
+    } catch (e) {
+      debugPrint('Canvas user profile API error: ${e.toString()}');
+      return _getMockUserProfile();
+    }
+  }
+
+  // Fetch user enrollments
+  static Future<List<Map<String, dynamic>>> fetchUserEnrollments() async {
+    try {
+      if (!ApiConfig.isCanvasApiAvailable) {
+        return _getMockEnrollments();
+      }
+
+      final url = '${ApiConfig.canvasBaseUrl}$_enrollmentsEndpoint';
+      final response = await _httpClient.get(
+        url,
+        service: 'canvas',
+        useCache: true,
+        cacheExpiration: ApiConfig.canvasCacheExpiration,
+      );
+
+      final List<dynamic> enrollmentsData = json.decode(response.body);
+      return enrollmentsData.cast<Map<String, dynamic>>();
+    } catch (e) {
+      debugPrint('Canvas enrollments API error: ${e.toString()}');
+      return _getMockEnrollments();
+    }
+  }
+
+  // Test Canvas API connection
+  static Future<bool> testCanvasConnection() async {
+    try {
+      if (!ApiConfig.isCanvasApiAvailable) {
+        return false;
+      }
+
+      final url = '${ApiConfig.canvasBaseUrl}$_userEndpoint';
+      final response = await _httpClient.get(
+        url,
+        service: 'canvas',
+        useCache: false,
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Canvas connection test failed: ${e.toString()}');
+      return false;
+    }
   }
 
   // Sync Canvas data with local storage
@@ -292,6 +360,56 @@ class CanvasIntegrationService {
         credits: 3,
         semester: 'Fall 2024',
       ),
+    ];
+  }
+
+  // Mock user profile data
+  static Map<String, dynamic> _getMockUserProfile() {
+    return {
+      'id': 12345,
+      'name': 'John Doe',
+      'short_name': 'John',
+      'sortable_name': 'Doe, John',
+      'email': 'john.doe@university.edu',
+      'login_id': 'johndoe',
+      'avatar_url': 'https://example.com/avatar.jpg',
+      'locale': 'en',
+      'time_zone': 'America/New_York',
+      'bio': 'Computer Science Student',
+    };
+  }
+
+  // Mock enrollments data
+  static List<Map<String, dynamic>> _getMockEnrollments() {
+    return [
+      {
+        'id': 1,
+        'user_id': 12345,
+        'course_id': 1,
+        'course_section_id': 1,
+        'enrollment_state': 'active',
+        'limit_privileges_to_course_section': false,
+        'role': 'StudentEnrollment',
+        'role_id': 3,
+        'type': 'StudentEnrollment',
+        'user_id': 12345,
+        'course_integration_id': null,
+        'sis_course_id': null,
+        'sis_section_id': null,
+        'sis_user_id': null,
+        'html_url': 'https://canvas.instructure.com/courses/1/users/12345',
+        'grades': {
+          'html_url': 'https://canvas.instructure.com/courses/1/grades/12345',
+          'current_score': 92.5,
+          'current_grade': 'A',
+          'final_score': null,
+          'final_grade': null,
+          'unposted_current_score': 92.5,
+          'unposted_current_grade': 'A',
+          'unposted_final_score': null,
+          'unposted_final_grade': null,
+        },
+      },
     ];
   }
 } 
