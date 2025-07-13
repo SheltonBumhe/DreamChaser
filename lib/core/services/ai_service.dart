@@ -5,6 +5,7 @@ import '../models/course_model.dart';
 import '../models/skill_model.dart';
 import '../models/ai_insight_model.dart';
 import '../models/ai_recommendation_model.dart';
+import '../models/job_opportunity_model.dart';
 import 'api_config.dart';
 import 'http_client.dart';
 
@@ -283,7 +284,13 @@ Return as a JSON array of skill names.
         );
 
         recommendations.add(AIRecommendation(
-          job: job,
+          id: item['jobId'] ?? 'rec_${recommendations.length}',
+          type: RecommendationType.career,
+          title: 'Job Recommendation',
+          description: item['reasoning'] ?? 'AI recommendation',
+          priority: RecommendationPriority.high,
+          estimatedTime: const Duration(hours: 1),
+          expectedOutcome: 'Apply to this position',
           reasoning: item['reasoning'] ?? 'AI recommendation',
           confidence: item['confidence'] ?? 0.8,
           matchScore: item['matchScore'] ?? 0.0,
@@ -305,13 +312,12 @@ Return as a JSON array of skill names.
 
       for (final item in data) {
         insights.add(AIInsight(
-          type: AIInsightType.values.firstWhere(
-            (t) => t.name.toLowerCase() == item['type'].toString().toLowerCase(),
-            orElse: () => AIInsightType.market,
-          ),
+          id: item['id'] ?? 'insight_${insights.length}',
+          type: InsightType.recommendation,
           title: item['title'] ?? 'Career Insight',
           description: item['description'] ?? '',
           confidence: item['confidence'] ?? 0.8,
+          timestamp: DateTime.now(),
           actionable: item['actionable'] ?? true,
         ));
       }
@@ -410,7 +416,13 @@ Return as a JSON array of skill names.
     int limit,
   ) {
     return availableJobs.take(limit).map((job) => AIRecommendation(
-      job: job,
+      id: 'rec_${job.id}',
+      type: RecommendationType.career,
+      title: 'Job Recommendation',
+      description: 'Based on your skills and experience',
+      priority: RecommendationPriority.high,
+      estimatedTime: const Duration(hours: 1),
+      expectedOutcome: 'Apply to this position',
       reasoning: 'Based on your skills and experience',
       confidence: 0.8,
       matchScore: 75.0,
@@ -421,24 +433,30 @@ Return as a JSON array of skill names.
   static List<AIInsight> _generateMockInsights() {
     return [
       AIInsight(
-        type: AIInsightType.market,
+        id: 'insight_1',
+        type: InsightType.recommendation,
         title: 'High Demand for Your Skills',
         description: 'Your technical skills are in high demand in the current job market.',
         confidence: 0.9,
+        timestamp: DateTime.now(),
         actionable: true,
       ),
       AIInsight(
-        type: AIInsightType.salary,
+        id: 'insight_2',
+        type: InsightType.recommendation,
         title: 'Competitive Salary Range',
         description: 'Based on your skills, you can expect a salary range of \$80,000 - \$120,000.',
         confidence: 0.8,
+        timestamp: DateTime.now(),
         actionable: true,
       ),
       AIInsight(
-        type: AIInsightType.growth,
+        id: 'insight_3',
+        type: InsightType.recommendation,
         title: 'Career Growth Opportunities',
         description: 'Consider focusing on machine learning and cloud technologies for career advancement.',
         confidence: 0.7,
+        timestamp: DateTime.now(),
         actionable: true,
       ),
     ];

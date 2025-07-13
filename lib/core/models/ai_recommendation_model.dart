@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'job_opportunity_model.dart';
 
 enum RecommendationType { study, timeManagement, assignment, career, health }
 enum RecommendationPriority { low, medium, high }
@@ -11,6 +12,12 @@ class AIRecommendation {
   final RecommendationPriority priority;
   final Duration estimatedTime;
   final String expectedOutcome;
+  
+  // Job recommendation specific fields
+  final JobOpportunity? job;
+  final String? reasoning;
+  final double? confidence;
+  final double? matchScore;
 
   AIRecommendation({
     required this.id,
@@ -20,6 +27,10 @@ class AIRecommendation {
     required this.priority,
     required this.estimatedTime,
     required this.expectedOutcome,
+    this.job,
+    this.reasoning,
+    this.confidence,
+    this.matchScore,
   });
 
   factory AIRecommendation.fromJson(Map<String, dynamic> json) {
@@ -35,6 +46,10 @@ class AIRecommendation {
       ),
       estimatedTime: Duration(milliseconds: json['estimatedTime'] as int),
       expectedOutcome: json['expectedOutcome'] as String,
+      job: json['job'] != null ? JobOpportunity.fromJson(json['job'] as Map<String, dynamic>) : null,
+      reasoning: json['reasoning'] as String?,
+      confidence: (json['confidence'] as num?)?.toDouble(),
+      matchScore: (json['matchScore'] as num?)?.toDouble(),
     );
   }
 
@@ -47,6 +62,10 @@ class AIRecommendation {
       'priority': priority.toString().split('.').last,
       'estimatedTime': estimatedTime.inMilliseconds,
       'expectedOutcome': expectedOutcome,
+      'job': job?.toJson(),
+      'reasoning': reasoning,
+      'confidence': confidence,
+      'matchScore': matchScore,
     };
   }
 
@@ -58,6 +77,10 @@ class AIRecommendation {
     RecommendationPriority? priority,
     Duration? estimatedTime,
     String? expectedOutcome,
+    JobOpportunity? job,
+    String? reasoning,
+    double? confidence,
+    double? matchScore,
   }) {
     return AIRecommendation(
       id: id ?? this.id,
@@ -67,6 +90,10 @@ class AIRecommendation {
       priority: priority ?? this.priority,
       estimatedTime: estimatedTime ?? this.estimatedTime,
       expectedOutcome: expectedOutcome ?? this.expectedOutcome,
+      job: job ?? this.job,
+      reasoning: reasoning ?? this.reasoning,
+      confidence: confidence ?? this.confidence,
+      matchScore: matchScore ?? this.matchScore,
     );
   }
 

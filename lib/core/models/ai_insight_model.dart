@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 enum InsightType { academic, trend, warning, achievement, recommendation }
+enum AIInsightType { market, salary, growth, skills, industry }
 
 class AIInsight {
   final String id;

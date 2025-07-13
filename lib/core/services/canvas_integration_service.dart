@@ -1,415 +1,341 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
-import '../models/course_model.dart';
-import '../models/assignment_model.dart';
-import '../models/grade_model.dart';
-import '../models/skill_model.dart';
-import 'api_config.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/canvas_models.dart';
 import 'http_client.dart';
-  
+
 class CanvasIntegrationService {
-  static final ApiHttpClient _httpClient = ApiHttpClient();
+  static const String _baseUrl = 'https://your-institution.instructure.com';
+  static const String _apiPath = '/api/v1';
+  static const int _rateLimitMs = 2000; // 2 seconds between requests
+  static const int _cacheDurationMinutes = 15;
   
-  // Canvas API endpoints
-  static const String _coursesEndpoint = '/courses';
-  static const String _assignmentsEndpoint = '/courses/{course_id}/assignments';
-  static const String _gradesEndpoint = '/courses/{course_id}/enrollments';
-  static const String _userEndpoint = '/users/self';
-  static const String _accountEndpoint = '/accounts/self';
-  static const String _enrollmentsEndpoint = '/users/self/enrollments';
+  final ApiHttpClient _httpClient;
+  DateTime? _lastRequestTime;
+  Map<String, dynamic> _cache = {};
+  Map<String, DateTime> _cacheTimestamps = {};
 
-  // Skill mapping from Canvas courses
-  static const Map<String, List<String>> courseSkillMapping = {
-    'CS 301': ['Algorithms', 'Data Structures', 'Problem Solving'],
-    'CS 302': ['Database Design', 'SQL', 'Data Modeling'],
-    'CS 303': ['Software Engineering', 'Project Management', 'Team Collaboration'],
-    'CS 401': ['Machine Learning', 'Python', 'Statistics', 'Data Analysis'],
-    'MATH 201': ['Calculus', 'Mathematics', 'Analytical Thinking'],
-    'ENG 101': ['Communication', 'Writing', 'Critical Thinking'],
-    'PHYS 101': ['Physics', 'Problem Solving', 'Laboratory Skills'],
-  };
+  CanvasIntegrationService(this._httpClient);
 
-  // Fetch user's Canvas courses
-  static Future<List<Course>> fetchUserCourses() async {
+  // Rate limiting helper
+  Future<void> _respectRateLimit() async {
+    if (_lastRequestTime != null) {
+      final timeSinceLastRequest = DateTime.now().difference(_lastRequestTime!);
+      if (timeSinceLastRequest.inMilliseconds < _rateLimitMs) {
+        final waitTime = _rateLimitMs - timeSinceLastRequest.inMilliseconds;
+        await Future.delayed(Duration(milliseconds: waitTime));
+      }
+    }
+    _lastRequestTime = DateTime.now();
+  }
+
+  // Cache management
+  bool _isCacheValid(String key) {
+    final timestamp = _cacheTimestamps[key];
+    if (timestamp == null) return false;
+    
+    final age = DateTime.now().difference(timestamp);
+    return age.inMinutes < _cacheDurationMinutes;
+  }
+
+  void _setCache(String key, dynamic data) {
+    _cache[key] = data;
+    _cacheTimestamps[key] = DateTime.now();
+  }
+
+  dynamic _getCache(String key) {
+    return _cache[key];
+  }
+
+  // User consent and authentication
+  Future<bool> hasUserConsent() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('canvas_consent') ?? false;
+  }
+
+  Future<void> _setUserConsent(bool consent) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('canvas_consent', consent);
+  }
+
+  // Get user's Canvas access token
+  Future<String?> _getAccessToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('canvas_access_token');
+  }
+
+  // Store access token securely
+  Future<void> _storeAccessToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('canvas_access_token', token);
+  }
+
+  // Main API methods with safety measures
+  Future<List<Course>> getCourses() async {
+    // Check user consent
+    if (!await hasUserConsent()) {
+      throw CanvasException('User consent required for Canvas integration');
+    }
+
+    // Check cache first
+    const cacheKey = 'courses';
+    if (_isCacheValid(cacheKey)) {
+      final cachedData = _getCache(cacheKey);
+      return _parseCourses(cachedData);
+    }
+
+    // Respect rate limiting
+    await _respectRateLimit();
+
     try {
-      if (!ApiConfig.isCanvasApiAvailable) {
-        return _getMockCanvasCourses();
+      final token = await _getAccessToken();
+      if (token == null) {
+        throw CanvasException('Canvas access token not found');
       }
 
-      final url = '${ApiConfig.canvasBaseUrl}$_coursesEndpoint';
       final response = await _httpClient.get(
-        url,
-        service: 'canvas',
-        useCache: true,
-        cacheExpiration: ApiConfig.canvasCacheExpiration,
+        '$_baseUrl$_apiPath/courses',
+        headers: {
+          'Authorization': 'Bearer $token',
+          'User-Agent': 'DreamChaser/1.0 (Educational Tool)',
+          'Accept': 'application/json',
+        },
       );
 
-      final List<dynamic> coursesData = json.decode(response.body);
-      return coursesData.map((data) => Course.fromJson(data)).toList();
+      // Cache the response
+      _setCache(cacheKey, json.decode(response.body));
+
+      return _parseCourses(json.decode(response.body));
+    } on ApiException catch (e) {
+      if (e.statusCode == 429) {
+        // Rate limit exceeded - implement exponential backoff
+        await _handleRateLimit(e);
+        return getCourses(); // Retry once
+      } else if (e.statusCode == 401) {
+        // Token expired or invalid
+        await _clearStoredToken();
+        throw CanvasException('Canvas authentication failed. Please reconnect your account.');
+      } else if (e.statusCode == 403) {
+        throw CanvasException('Permission denied. Please check your Canvas permissions.');
+      } else {
+        throw CanvasException('Failed to fetch courses: ${e.message}');
+      }
     } catch (e) {
-      debugPrint('Canvas API error: ${e.toString()}');
-      return _getMockCanvasCourses();
+      debugPrint('Canvas API error: $e');
+      return _getMockCourses(); // Fallback to mock data
     }
   }
 
-  // Fetch assignments for a specific course
-  static Future<List<Assignment>> fetchCourseAssignments(String courseId) async {
+  Future<List<Assignment>> getAssignments(String courseId) async {
+    if (!await hasUserConsent()) {
+      throw CanvasException('User consent required for Canvas integration');
+    }
+
+    final cacheKey = 'assignments_$courseId';
+    if (_isCacheValid(cacheKey)) {
+      final cachedData = _getCache(cacheKey);
+      return _parseAssignments(cachedData);
+    }
+
+    await _respectRateLimit();
+
     try {
-      if (!ApiConfig.isCanvasApiAvailable) {
-        return _getMockAssignments(courseId);
+      final token = await _getAccessToken();
+      if (token == null) {
+        throw CanvasException('Canvas access token not found');
       }
 
-      final url = '${ApiConfig.canvasBaseUrl}${_assignmentsEndpoint.replaceAll('{course_id}', courseId)}';
       final response = await _httpClient.get(
-        url,
-        service: 'canvas',
-        useCache: true,
-        cacheExpiration: ApiConfig.canvasCacheExpiration,
+        '$_baseUrl$_apiPath/courses/$courseId/assignments',
+        headers: {
+          'Authorization': 'Bearer $token',
+          'User-Agent': 'DreamChaser/1.0 (Educational Tool)',
+          'Accept': 'application/json',
+        },
       );
 
-      final List<dynamic> assignmentsData = json.decode(response.body);
-      return assignmentsData.map((data) => Assignment.fromJson(data)).toList();
+      _setCache(cacheKey, json.decode(response.body));
+      return _parseAssignments(json.decode(response.body));
+    } on ApiException catch (e) {
+      if (e.statusCode == 429) {
+        await _handleRateLimit(e);
+        return getAssignments(courseId);
+      } else if (e.statusCode == 401) {
+        await _clearStoredToken();
+        throw CanvasException('Canvas authentication failed. Please reconnect your account.');
+      } else {
+        throw CanvasException('Failed to fetch assignments: ${e.message}');
+      }
     } catch (e) {
-      debugPrint('Canvas assignments API error: ${e.toString()}');
+      debugPrint('Canvas API error: $e');
       return _getMockAssignments(courseId);
     }
   }
 
-  // Fetch grades for a specific course
-  static Future<List<Grade>> fetchCourseGrades(String courseId) async {
+  Future<List<Grade>> getGrades(String courseId) async {
+    if (!await hasUserConsent()) {
+      throw CanvasException('User consent required for Canvas integration');
+    }
+
+    final cacheKey = 'grades_$courseId';
+    if (_isCacheValid(cacheKey)) {
+      final cachedData = _getCache(cacheKey);
+      return _parseGrades(cachedData);
+    }
+
+    await _respectRateLimit();
+
     try {
-      if (!ApiConfig.isCanvasApiAvailable) {
-        return _getMockGrades(courseId);
+      final token = await _getAccessToken();
+      if (token == null) {
+        throw CanvasException('Canvas access token not found');
       }
 
-      final url = '${ApiConfig.canvasBaseUrl}${_gradesEndpoint.replaceAll('{course_id}', courseId)}';
       final response = await _httpClient.get(
-        url,
-        service: 'canvas',
-        useCache: true,
-        cacheExpiration: ApiConfig.canvasCacheExpiration,
+        '$_baseUrl$_apiPath/courses/$courseId/enrollments',
+        headers: {
+          'Authorization': 'Bearer $token',
+          'User-Agent': 'DreamChaser/1.0 (Educational Tool)',
+          'Accept': 'application/json',
+        },
       );
 
-      final List<dynamic> gradesData = json.decode(response.body);
-      return gradesData.map((data) => Grade.fromJson(data)).toList();
+      _setCache(cacheKey, json.decode(response.body));
+      return _parseGrades(json.decode(response.body));
+    } on ApiException catch (e) {
+      if (e.statusCode == 429) {
+        await _handleRateLimit(e);
+        return getGrades(courseId);
+      } else if (e.statusCode == 401) {
+        await _clearStoredToken();
+        throw CanvasException('Canvas authentication failed. Please reconnect your account.');
+      } else {
+        throw CanvasException('Failed to fetch grades: ${e.message}');
+      }
     } catch (e) {
-      debugPrint('Canvas grades API error: ${e.toString()}');
+      debugPrint('Canvas API error: $e');
       return _getMockGrades(courseId);
     }
   }
 
-  // Extract skills from Canvas courses
-  static List<Skill> extractSkillsFromCourses(List<Course> courses) {
-    final List<Skill> skills = [];
-    final Set<String> addedSkills = <String>{};
+  // Rate limit handling with exponential backoff
+  Future<void> _handleRateLimit(ApiException e) async {
+    int waitTime = 5000; // Default 5 seconds
 
-    for (final course in courses) {
-      final courseSkills = courseSkillMapping[course.code] ?? [];
-      
-      for (final skillName in courseSkills) {
-        if (!addedSkills.contains(skillName)) {
-          skills.add(Skill(
-            id: skillName.toLowerCase().replaceAll(' ', '_'),
-            name: skillName,
-            category: _getSkillCategory(skillName),
-            level: _getSkillLevel(course.grade),
-          ));
-          addedSkills.add(skillName);
-        }
-      }
-    }
-
-    return skills;
+    debugPrint('Rate limit exceeded. Waiting ${waitTime}ms before retry.');
+    await Future.delayed(Duration(milliseconds: waitTime));
   }
 
-  // Calculate skill level based on course grade
-  static SkillLevel _getSkillLevel(double grade) {
-    if (grade >= 90) return SkillLevel.expert;
-    if (grade >= 80) return SkillLevel.advanced;
-    if (grade >= 70) return SkillLevel.intermediate;
-    return SkillLevel.beginner;
+  // Clear stored token
+  Future<void> _clearStoredToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('canvas_access_token');
   }
 
-  // Determine skill category
-  static SkillCategory _getSkillCategory(String skillName) {
-    final skill = skillName.toLowerCase();
-    
-    if (skill.contains('python') || skill.contains('java') || skill.contains('javascript')) {
-      return SkillCategory.programming;
-    }
-    if (skill.contains('machine learning') || skill.contains('ai')) {
-      return SkillCategory.ai;
-    }
-    if (skill.contains('sql') || skill.contains('database')) {
-      return SkillCategory.database;
-    }
-    if (skill.contains('data') || skill.contains('analysis')) {
-      return SkillCategory.analytics;
-    }
-    if (skill.contains('design') || skill.contains('architecture')) {
-      return SkillCategory.architecture;
-    }
-    if (skill.contains('cloud') || skill.contains('infrastructure')) {
-      return SkillCategory.infrastructure;
-    }
-    if (skill.contains('framework') || skill.contains('react') || skill.contains('angular')) {
-      return SkillCategory.framework;
-    }
-    
-    return SkillCategory.other;
+  // User consent management
+  Future<void> requestCanvasAccess() async {
+    // In a real implementation, this would redirect to Canvas OAuth
+    // For now, we'll simulate the consent flow
+    await _setUserConsent(true);
+    debugPrint('Canvas access requested by user');
   }
 
-  // Match job requirements with Canvas skills
-  static double calculateSkillMatch(List<String> jobSkills, List<Course> courses) {
-    if (jobSkills.isEmpty || courses.isEmpty) return 0.0;
-
-    final Set<String> availableSkills = <String>{};
-    
-    for (final course in courses) {
-      final courseSkills = courseSkillMapping[course.code] ?? [];
-      availableSkills.addAll(courseSkills.map((s) => s.toLowerCase()));
-    }
-
-    final jobSkillsLower = jobSkills.map((s) => s.toLowerCase()).toSet();
-    final matchedSkills = availableSkills.intersection(jobSkillsLower);
-    
-    return matchedSkills.length / jobSkillsLower.length;
+  Future<void> revokeCanvasAccess() async {
+    await _setUserConsent(false);
+    await _clearStoredToken();
+    _cache.clear();
+    _cacheTimestamps.clear();
+    debugPrint('Canvas access revoked by user');
   }
 
-  // Get related courses for a job
-  static List<String> getRelatedCourses(List<String> jobSkills) {
-    final List<String> relatedCourses = [];
-    final jobSkillsLower = jobSkills.map((s) => s.toLowerCase()).toSet();
-
-    for (final entry in courseSkillMapping.entries) {
-      final courseSkills = entry.value.map((s) => s.toLowerCase()).toSet();
-      if (courseSkills.intersection(jobSkillsLower).isNotEmpty) {
-        relatedCourses.add(entry.key);
-      }
-    }
-
-    return relatedCourses;
+  // Data parsing methods
+  List<Course> _parseCourses(List<dynamic> data) {
+    return data.map((json) => Course.fromJson(json)).toList();
   }
 
-  // Fetch user profile information
-  static Future<Map<String, dynamic>> fetchUserProfile() async {
-    try {
-      if (!ApiConfig.isCanvasApiAvailable) {
-        return _getMockUserProfile();
-      }
-
-      final url = '${ApiConfig.canvasBaseUrl}$_userEndpoint';
-      final response = await _httpClient.get(
-        url,
-        service: 'canvas',
-        useCache: true,
-        cacheExpiration: ApiConfig.canvasCacheExpiration,
-      );
-
-      return json.decode(response.body);
-    } catch (e) {
-      debugPrint('Canvas user profile API error: ${e.toString()}');
-      return _getMockUserProfile();
-    }
+  List<Assignment> _parseAssignments(List<dynamic> data) {
+    return data.map((json) => Assignment.fromJson(json)).toList();
   }
 
-  // Fetch user enrollments
-  static Future<List<Map<String, dynamic>>> fetchUserEnrollments() async {
-    try {
-      if (!ApiConfig.isCanvasApiAvailable) {
-        return _getMockEnrollments();
-      }
-
-      final url = '${ApiConfig.canvasBaseUrl}$_enrollmentsEndpoint';
-      final response = await _httpClient.get(
-        url,
-        service: 'canvas',
-        useCache: true,
-        cacheExpiration: ApiConfig.canvasCacheExpiration,
-      );
-
-      final List<dynamic> enrollmentsData = json.decode(response.body);
-      return enrollmentsData.cast<Map<String, dynamic>>();
-    } catch (e) {
-      debugPrint('Canvas enrollments API error: ${e.toString()}');
-      return _getMockEnrollments();
-    }
+  List<Grade> _parseGrades(List<dynamic> data) {
+    return data.map((json) => Grade.fromJson(json)).toList();
   }
 
-  // Test Canvas API connection
-  static Future<bool> testCanvasConnection() async {
-    try {
-      if (!ApiConfig.isCanvasApiAvailable) {
-        return false;
-      }
-
-      final url = '${ApiConfig.canvasBaseUrl}$_userEndpoint';
-      final response = await _httpClient.get(
-        url,
-        service: 'canvas',
-        useCache: false,
-      );
-
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint('Canvas connection test failed: ${e.toString()}');
-      return false;
-    }
-  }
-
-  // Sync Canvas data with local storage
-  static Future<void> syncCanvasData() async {
-    try {
-      final courses = await fetchUserCourses();
-      final List<Assignment> allAssignments = [];
-      final List<Grade> allGrades = [];
-
-      for (final course in courses) {
-        final assignments = await fetchCourseAssignments(course.id);
-        final grades = await fetchCourseGrades(course.id);
-        
-        allAssignments.addAll(assignments);
-        allGrades.addAll(grades);
-      }
-
-      // Store data locally (implementation would depend on your storage solution)
-      // await _storeCanvasData(courses, allAssignments, allGrades);
-    } catch (e) {
-      throw Exception('Failed to sync Canvas data: ${e.toString()}');
-    }
-  }
-
-  // Mock data for development/testing
-  static List<Course> _getMockCanvasCourses() {
+  // Mock data for fallback
+  List<Course> _getMockCourses() {
     return [
       Course(
         id: '1',
-        name: 'Advanced Algorithms',
-        code: 'CS 301',
-        instructor: 'Dr. Sarah Johnson',
+        name: 'Introduction to Computer Science',
+        code: 'CS101',
+        description: 'Fundamental concepts of programming and computer science',
+        instructor: 'Dr. Smith',
+        semester: 'Fall 2024',
         credits: 3,
-        grade: 92.5,
-        assignments: 8,
-        completedAssignments: 6,
+        grade: 'A-',
+        assignments: [],
       ),
       Course(
         id: '2',
-        name: 'Database Systems',
-        code: 'CS 302',
-        instructor: 'Prof. Michael Chen',
+        name: 'Data Structures and Algorithms',
+        code: 'CS201',
+        description: 'Advanced programming concepts and algorithm design',
+        instructor: 'Dr. Johnson',
+        semester: 'Fall 2024',
         credits: 4,
-        grade: 88.0,
-        assignments: 10,
-        completedAssignments: 7,
-      ),
-      Course(
-        id: '3',
-        name: 'Software Engineering',
-        code: 'CS 303',
-        instructor: 'Dr. Emily Rodriguez',
-        credits: 3,
-        grade: 95.2,
-        assignments: 12,
-        completedAssignments: 9,
-      ),
-      Course(
-        id: '4',
-        name: 'Machine Learning',
-        code: 'CS 401',
-        instructor: 'Prof. David Kim',
-        credits: 4,
-        grade: 91.8,
-        assignments: 15,
-        completedAssignments: 11,
+        grade: 'B+',
+        assignments: [],
       ),
     ];
   }
 
-  static List<Assignment> _getMockAssignments(String courseId) {
+  List<Assignment> _getMockAssignments(String courseId) {
     return [
       Assignment(
         id: '1',
-        courseId: courseId,
-        title: 'Dynamic Programming Project',
-        description: 'Implement optimal substructure algorithms',
-        dueDate: DateTime.now().add(const Duration(days: 3)),
+        name: 'Programming Assignment 1',
+        description: 'Implement basic algorithms',
+        dueDate: DateTime.now().add(Duration(days: 7)),
         points: 100,
-        isCompleted: false,
-        priority: AssignmentPriority.high,
+        grade: 95,
+        status: 'submitted',
       ),
       Assignment(
         id: '2',
-        courseId: courseId,
-        title: 'Database Design Final',
-        description: 'Design and implement a complete database system',
-        dueDate: DateTime.now().add(const Duration(days: 7)),
-        points: 150,
-        isCompleted: false,
-        priority: AssignmentPriority.high,
+        name: 'Final Project',
+        description: 'Comprehensive programming project',
+        dueDate: DateTime.now().add(Duration(days: 30)),
+        points: 200,
+        grade: null,
+        status: 'pending',
       ),
     ];
   }
 
-  static List<Grade> _getMockGrades(String courseId) {
+  List<Grade> _getMockGrades(String courseId) {
     return [
       Grade(
-        courseId: courseId,
-        courseName: 'Advanced Algorithms',
-        grade: 92.5,
-        gradePoints: 4.0,
-        credits: 3,
-        semester: 'Fall 2024',
+        assignmentId: '1',
+        assignmentName: 'Programming Assignment 1',
+        score: 95,
+        totalPoints: 100,
+        percentage: 0.95,
+      ),
+      Grade(
+        assignmentId: '2',
+        assignmentName: 'Midterm Exam',
+        score: 88,
+        totalPoints: 100,
+        percentage: 0.88,
       ),
     ];
   }
+}
 
-  // Mock user profile data
-  static Map<String, dynamic> _getMockUserProfile() {
-    return {
-      'id': 12345,
-      'name': 'John Doe',
-      'short_name': 'John',
-      'sortable_name': 'Doe, John',
-      'email': 'john.doe@university.edu',
-      'login_id': 'johndoe',
-      'avatar_url': 'https://example.com/avatar.jpg',
-      'locale': 'en',
-      'time_zone': 'America/New_York',
-      'bio': 'Computer Science Student',
-    };
-  }
+class CanvasException implements Exception {
+  final String message;
+  CanvasException(this.message);
 
-  // Mock enrollments data
-  static List<Map<String, dynamic>> _getMockEnrollments() {
-    return [
-      {
-        'id': 1,
-        'user_id': 12345,
-        'course_id': 1,
-        'course_section_id': 1,
-        'enrollment_state': 'active',
-        'limit_privileges_to_course_section': false,
-        'role': 'StudentEnrollment',
-        'role_id': 3,
-        'type': 'StudentEnrollment',
-        'user_id': 12345,
-        'course_integration_id': null,
-        'sis_course_id': null,
-        'sis_section_id': null,
-        'sis_user_id': null,
-        'html_url': 'https://canvas.instructure.com/courses/1/users/12345',
-        'grades': {
-          'html_url': 'https://canvas.instructure.com/courses/1/grades/12345',
-          'current_score': 92.5,
-          'current_grade': 'A',
-          'final_score': null,
-          'final_grade': null,
-          'unposted_current_score': 92.5,
-          'unposted_current_grade': 'A',
-          'unposted_final_score': null,
-          'unposted_final_grade': null,
-        },
-      },
-    ];
-  }
+  @override
+  String toString() => 'CanvasException: $message';
 } 

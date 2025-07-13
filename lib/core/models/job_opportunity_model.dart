@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-enum JobType { fullTime, partTime, contract, internship }
+enum JobType { fullTime, partTime, contract, internship, freelance }
 enum SecurityLevel { verified, trusted, unverified, flagged }
 enum ApplicationMethod { direct, external, email, phone }
+enum ExperienceLevel { intern, junior, mid, senior }
 
 class JobOpportunity {
   final String id;
@@ -33,6 +34,13 @@ class JobOpportunity {
   final List<String> relatedCanvasCourses;
   final List<String> requiredCanvasSkills;
   final double canvasSkillMatch;
+  
+  // Additional fields for real API integration
+  final bool isSecure;
+  final bool remote;
+  final ExperienceLevel experienceLevel;
+  final List<String> benefits;
+  final DateTime? deadline;
 
   JobOpportunity({
     required this.id,
@@ -59,6 +67,11 @@ class JobOpportunity {
     this.relatedCanvasCourses = const [],
     this.requiredCanvasSkills = const [],
     this.canvasSkillMatch = 0.0,
+    this.isSecure = true,
+    this.remote = false,
+    this.experienceLevel = ExperienceLevel.mid,
+    this.benefits = const [],
+    this.deadline,
   });
 
   factory JobOpportunity.fromJson(Map<String, dynamic> json) {
@@ -93,6 +106,14 @@ class JobOpportunity {
       relatedCanvasCourses: List<String>.from(json['relatedCanvasCourses'] as List? ?? []),
       requiredCanvasSkills: List<String>.from(json['requiredCanvasSkills'] as List? ?? []),
       canvasSkillMatch: (json['canvasSkillMatch'] as num?)?.toDouble() ?? 0.0,
+      isSecure: json['isSecure'] as bool? ?? true,
+      remote: json['remote'] as bool? ?? false,
+      experienceLevel: ExperienceLevel.values.firstWhere(
+        (e) => e.toString() == 'ExperienceLevel.${json['experienceLevel'] ?? 'mid'}',
+        orElse: () => ExperienceLevel.mid,
+      ),
+      benefits: List<String>.from(json['benefits'] as List? ?? []),
+      deadline: json['deadline'] != null ? DateTime.parse(json['deadline'] as String) : null,
     );
   }
 
@@ -122,6 +143,11 @@ class JobOpportunity {
       'relatedCanvasCourses': relatedCanvasCourses,
       'requiredCanvasSkills': requiredCanvasSkills,
       'canvasSkillMatch': canvasSkillMatch,
+      'isSecure': isSecure,
+      'remote': remote,
+      'experienceLevel': experienceLevel.toString().split('.').last,
+      'benefits': benefits,
+      'deadline': deadline?.toIso8601String(),
     };
   }
 
@@ -150,6 +176,11 @@ class JobOpportunity {
     List<String>? relatedCanvasCourses,
     List<String>? requiredCanvasSkills,
     double? canvasSkillMatch,
+    bool? isSecure,
+    bool? remote,
+    ExperienceLevel? experienceLevel,
+    List<String>? benefits,
+    DateTime? deadline,
   }) {
     return JobOpportunity(
       id: id ?? this.id,
@@ -176,6 +207,11 @@ class JobOpportunity {
       relatedCanvasCourses: relatedCanvasCourses ?? this.relatedCanvasCourses,
       requiredCanvasSkills: requiredCanvasSkills ?? this.requiredCanvasSkills,
       canvasSkillMatch: canvasSkillMatch ?? this.canvasSkillMatch,
+      isSecure: isSecure ?? this.isSecure,
+      remote: remote ?? this.remote,
+      experienceLevel: experienceLevel ?? this.experienceLevel,
+      benefits: benefits ?? this.benefits,
+      deadline: deadline ?? this.deadline,
     );
   }
 
@@ -237,6 +273,8 @@ class JobOpportunity {
         return 'Contract';
       case JobType.internship:
         return 'Internship';
+      case JobType.freelance:
+        return 'Freelance';
     }
   }
 
@@ -280,10 +318,7 @@ class JobOpportunity {
     }
   }
 
-  bool get isSecure {
-    return securityLevel == SecurityLevel.verified || 
-           securityLevel == SecurityLevel.trusted;
-  }
+
 
   bool get hasValidApplicationMethod {
     return applicationUrl != null || 

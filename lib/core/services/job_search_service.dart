@@ -12,8 +12,8 @@ class JobSearchService {
   // Job search parameters
   static Future<List<JobOpportunity>> searchJobs({
     String? query,
-    String? location,
     JobType? type,
+    String? location,
     double? minSalary,
     double? maxSalary,
     List<String>? requiredSkills,
@@ -208,9 +208,11 @@ class JobSearchService {
       postedDate: data['created_at'] != null 
           ? DateTime.parse(data['created_at']) 
           : DateTime.now(),
+      applicationDeadline: DateTime.now().add(const Duration(days: 30)),
       deadline: null,
       remote: data['type']?.toString().toLowerCase().contains('remote') ?? false,
       experienceLevel: _parseExperienceLevel(data['title'] ?? ''),
+      matchScore: 0.8,
     );
   }
 
@@ -219,17 +221,23 @@ class JobSearchService {
     return jobs.where((job) {
       // Check for scam indicators
       if (_detectScam(job)) {
-        job.isScam = true;
-        job.isSecure = false;
+        // Create a new job object with scam flag
+        final scamJob = job.copyWith(isScam: true, isSecure: false);
         return false; // Remove scam jobs
       }
 
       // Verify company authenticity
-      job.securityLevel = _verifyCompany(job.company);
+      final securityLevel = _verifyCompany(job.company);
       
       // Mark as secure if company is verified or trusted
-      job.isSecure = job.securityLevel == SecurityLevel.verified || 
-                     job.securityLevel == SecurityLevel.trusted;
+      final isSecure = securityLevel == SecurityLevel.verified || 
+                       securityLevel == SecurityLevel.trusted;
+      
+      // Update job with security information
+      job = job.copyWith(
+        securityLevel: securityLevel,
+        isSecure: isSecure,
+      );
 
       return true;
     }).toList();
@@ -365,16 +373,15 @@ class JobSearchService {
   static ExperienceLevel _parseExperienceLevel(String title) {
     final titleLower = title.toLowerCase();
     
-    if (titleLower.contains('senior') || titleLower.contains('lead')) {
+    if (titleLower.contains('senior') || titleLower.contains('lead') || titleLower.contains('principal')) {
       return ExperienceLevel.senior;
     }
     if (titleLower.contains('junior') || titleLower.contains('entry')) {
       return ExperienceLevel.junior;
     }
-    if (titleLower.contains('intern') || titleLower.contains('student')) {
+    if (titleLower.contains('intern') || titleLower.contains('internship')) {
       return ExperienceLevel.intern;
     }
-    
     return ExperienceLevel.mid;
   }
 
@@ -437,49 +444,174 @@ class JobSearchService {
   }
 
   // Mock jobs for development/testing
-  static List<JobOpportunity> _getMockJobs() {
+  static JobOpportunity _createMockJob({
+    required String id,
+    required String title,
+    required String company,
+    required String location,
+    required JobType type,
+    required String salary,
+    required String description,
+    required List<String> requirements,
+    required List<String> skills,
+    required DateTime postedDate,
+    required DateTime applicationDeadline,
+    required double matchScore,
+    SecurityLevel securityLevel = SecurityLevel.unverified,
+    bool isVerifiedCompany = false,
+    bool hasDirectApplication = false,
+    String? applicationUrl,
+    String? applicationEmail,
+    String? applicationPhone,
+    ApplicationMethod applicationMethod = ApplicationMethod.external,
+    List<String> scamIndicators = const [],
+    bool isScam = false,
+    List<String> relatedCanvasCourses = const [],
+    List<String> requiredCanvasSkills = const [],
+    double canvasSkillMatch = 0.0,
+    bool remote = false,
+    ExperienceLevel experienceLevel = ExperienceLevel.mid,
+    List<String> benefits = const [],
+    DateTime? deadline,
+  }) {
+    return JobOpportunity(
+      id: id,
+      title: title,
+      company: company,
+      location: location,
+      type: type,
+      salary: salary,
+      description: description,
+      requirements: requirements,
+      skills: skills,
+      postedDate: postedDate,
+      applicationDeadline: applicationDeadline,
+      matchScore: matchScore,
+      securityLevel: securityLevel,
+      isVerifiedCompany: isVerifiedCompany,
+      hasDirectApplication: hasDirectApplication,
+      applicationUrl: applicationUrl,
+      applicationEmail: applicationEmail,
+      applicationPhone: applicationPhone,
+      applicationMethod: applicationMethod,
+      scamIndicators: scamIndicators,
+      isScam: isScam,
+      relatedCanvasCourses: relatedCanvasCourses,
+      requiredCanvasSkills: requiredCanvasSkills,
+      canvasSkillMatch: canvasSkillMatch,
+      remote: remote,
+      experienceLevel: experienceLevel,
+      benefits: benefits,
+      deadline: deadline,
+    );
+  }
+
+  static JobOpportunity _processJob(JobOpportunity job) {
+    // Apply scam detection
+    final scamIndicators = _detectScamIndicators(job);
+    if (scamIndicators.isNotEmpty) {
+      return job.copyWith(
+        isScam: true,
+        securityLevel: SecurityLevel.flagged,
+        scamIndicators: scamIndicators,
+      );
+    }
+
+    // Apply company verification
+    final verifiedSecurityLevel = _verifyCompany(job.company);
+    final updatedJob = job.copyWith(
+      securityLevel: verifiedSecurityLevel,
+      isSecure: verifiedSecurityLevel == SecurityLevel.verified || 
+                verifiedSecurityLevel == SecurityLevel.trusted,
+    );
+
+    return updatedJob;
+  }
+
+  static List<String> _detectScamIndicators(JobOpportunity job) {
+    final indicators = <String>[];
+    final titleLower = job.title.toLowerCase();
+    final companyLower = job.company.toLowerCase();
+    final descriptionLower = job.description.toLowerCase();
+
+    // Common scam indicators
+    if (titleLower.contains('work from home') && 
+        (titleLower.contains('earn') || titleLower.contains('money'))) {
+      indicators.add('Suspicious work-from-home claims');
+    }
+
+    if (companyLower.contains('llc') && 
+        (titleLower.contains('remote') || titleLower.contains('online'))) {
+      indicators.add('New LLC with remote work claims');
+    }
+
+    if (descriptionLower.contains('send money') || 
+        descriptionLower.contains('payment required')) {
+      indicators.add('Requests payment from applicant');
+    }
+
+    if (descriptionLower.contains('personal information') && 
+        descriptionLower.contains('bank account')) {
+      indicators.add('Requests sensitive financial information');
+    }
+
+    if (titleLower.contains('data entry') && 
+        (titleLower.contains('\$100') || titleLower.contains('\$200'))) {
+      indicators.add('Unrealistic salary for data entry');
+    }
+
+    if (companyLower.length < 3 || 
+        companyLower.contains('temp') || 
+        companyLower.contains('agency')) {
+      indicators.add('Suspicious company name');
+    }
+
+    return indicators;
+  }
+
+  static JobOpportunity _getMockJobs() {
     return [
-      JobOpportunity(
+      _createMockJob(
         id: '1',
         title: 'Senior Software Engineer',
         company: 'Google',
         location: 'Mountain View, CA',
-        description: 'Join our team to build scalable applications...',
-        salary: '\$150,000 - \$200,000',
         type: JobType.fullTime,
-        applicationUrl: 'https://careers.google.com/jobs/123',
-        applicationEmail: 'jobs@google.com',
+        salary: '\$150,000 - \$200,000',
+        description: 'Join our team to build innovative solutions...',
+        requirements: ['5+ years experience', 'Python', 'JavaScript'],
+        skills: ['Python', 'JavaScript', 'React', 'Node.js'],
+        postedDate: DateTime.now().subtract(Duration(days: 2)),
+        applicationDeadline: DateTime.now().add(Duration(days: 30)),
+        matchScore: 0.85,
         securityLevel: SecurityLevel.verified,
-        isScam: false,
-        isSecure: true,
-        skills: ['Python', 'JavaScript', 'React', 'AWS'],
-        requirements: ['Bachelor degree', '5+ years experience'],
-        benefits: ['Health insurance', '401k', 'Remote work'],
-        postedDate: DateTime.now().subtract(const Duration(days: 2)),
-        deadline: DateTime.now().add(const Duration(days: 30)),
-        remote: true,
+        isVerifiedCompany: true,
+        hasDirectApplication: true,
+        applicationUrl: 'https://careers.google.com/jobs/123',
+        applicationMethod: ApplicationMethod.direct,
         experienceLevel: ExperienceLevel.senior,
+        benefits: ['Health insurance', '401k', 'Stock options'],
       ),
-      JobOpportunity(
+      _createMockJob(
         id: '2',
         title: 'Frontend Developer',
         company: 'Microsoft',
         location: 'Seattle, WA',
-        description: 'Build modern web applications...',
-        salary: '\$120,000 - \$150,000',
         type: JobType.fullTime,
-        applicationUrl: 'https://careers.microsoft.com/jobs/456',
-        applicationEmail: 'jobs@microsoft.com',
-        securityLevel: SecurityLevel.verified,
-        isScam: false,
-        isSecure: true,
+        salary: '\$120,000 - \$160,000',
+        description: 'Build amazing user experiences...',
+        requirements: ['3+ years experience', 'React', 'TypeScript'],
         skills: ['React', 'TypeScript', 'CSS', 'HTML'],
-        requirements: ['Bachelor degree', '3+ years experience'],
-        benefits: ['Health insurance', 'Dental', 'Vision'],
-        postedDate: DateTime.now().subtract(const Duration(days: 1)),
-        deadline: DateTime.now().add(const Duration(days: 45)),
-        remote: false,
+        postedDate: DateTime.now().subtract(Duration(days: 1)),
+        applicationDeadline: DateTime.now().add(Duration(days: 25)),
+        matchScore: 0.75,
+        securityLevel: SecurityLevel.verified,
+        isVerifiedCompany: true,
+        hasDirectApplication: true,
+        applicationUrl: 'https://careers.microsoft.com/jobs/456',
+        applicationMethod: ApplicationMethod.direct,
         experienceLevel: ExperienceLevel.mid,
+        benefits: ['Health insurance', '401k', 'Remote work'],
       ),
     ];
   }
