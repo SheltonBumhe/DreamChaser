@@ -1,22 +1,26 @@
+import 'package:dream_chaser/core/models/canvas_models.dart';
+
 class Course {
   final String id;
   final String name;
   final String code;
+  final String description;
   final String instructor;
+  final String semester;
   final int credits;
-  final double grade;
-  final int assignments;
-  final int completedAssignments;
+  final String grade;
+  final List<Assignment> assignments;
 
   Course({
     required this.id,
     required this.name,
     required this.code,
+    required this.description,
     required this.instructor,
+    required this.semester,
     required this.credits,
     required this.grade,
     required this.assignments,
-    required this.completedAssignments,
   });
 
   factory Course.fromJson(Map<String, dynamic> json) {
@@ -24,11 +28,14 @@ class Course {
       id: json['id'] as String,
       name: json['name'] as String,
       code: json['code'] as String,
+      description: json['description'] as String? ?? '',
       instructor: json['instructor'] as String,
+      semester: json['semester'] as String? ?? '',
       credits: json['credits'] as int,
-      grade: (json['grade'] as num).toDouble(),
-      assignments: json['assignments'] as int,
-      completedAssignments: json['completedAssignments'] as int,
+      grade: json['grade'] as String? ?? '',
+      assignments: (json['assignments'] as List<dynamic>? ?? [])
+          .map((a) => Assignment.fromJson(a as Map<String, dynamic>))
+          .toList(),
     );
   }
 
@@ -37,11 +44,12 @@ class Course {
       'id': id,
       'name': name,
       'code': code,
+      'description': description,
       'instructor': instructor,
+      'semester': semester,
       'credits': credits,
       'grade': grade,
-      'assignments': assignments,
-      'completedAssignments': completedAssignments,
+      'assignments': assignments.map((a) => a.toJson()).toList(),
     };
   }
 
@@ -49,38 +57,28 @@ class Course {
     String? id,
     String? name,
     String? code,
+    String? description,
     String? instructor,
+    String? semester,
     int? credits,
-    double? grade,
-    int? assignments,
-    int? completedAssignments,
+    String? grade,
+    List<Assignment>? assignments,
   }) {
     return Course(
       id: id ?? this.id,
       name: name ?? this.name,
       code: code ?? this.code,
+      description: description ?? this.description,
       instructor: instructor ?? this.instructor,
+      semester: semester ?? this.semester,
       credits: credits ?? this.credits,
       grade: grade ?? this.grade,
       assignments: assignments ?? this.assignments,
-      completedAssignments: completedAssignments ?? this.completedAssignments,
     );
   }
 
-  double get assignmentProgress => assignments > 0 ? (completedAssignments / assignments) * 100 : 0.0;
-  int get remainingAssignments => assignments - completedAssignments;
   String get letterGrade {
-    if (grade >= 93) return 'A';
-    if (grade >= 90) return 'A-';
-    if (grade >= 87) return 'B+';
-    if (grade >= 83) return 'B';
-    if (grade >= 80) return 'B-';
-    if (grade >= 77) return 'C+';
-    if (grade >= 73) return 'C';
-    if (grade >= 70) return 'C-';
-    if (grade >= 67) return 'D+';
-    if (grade >= 63) return 'D';
-    if (grade >= 60) return 'D-';
-    return 'F';
+    if (grade.isEmpty) return 'N/A';
+    return grade.toUpperCase();
   }
 } 
