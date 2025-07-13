@@ -320,6 +320,11 @@ class CanvasIntegrationService {
         score: 95,
         totalPoints: 100,
         percentage: 0.95,
+        courseName: 'Introduction to Computer Science',
+        semester: 'Fall 2024',
+        credits: 3,
+        grade: 95,
+        gradePoints: 3.8,
       ),
       Grade(
         assignmentId: '2',
@@ -327,6 +332,11 @@ class CanvasIntegrationService {
         score: 88,
         totalPoints: 100,
         percentage: 0.88,
+        courseName: 'Introduction to Computer Science',
+        semester: 'Fall 2024',
+        credits: 3,
+        grade: 88,
+        gradePoints: 3.3,
       ),
     ];
   }

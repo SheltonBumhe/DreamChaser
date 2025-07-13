@@ -39,7 +39,7 @@ class CoursesScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        '${course.grade.toStringAsFixed(1)}%',
+                        course.grade.isNotEmpty ? course.grade : 'N/A',
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
